@@ -73,35 +73,6 @@ def get_lr(it, warmup_iters, lr_decay_iters, learning_rate, min_lr):
     return min_lr + coeff * (learning_rate - min_lr)
 
 
-@torch.no_grad()
-def evalaute(
-    model: nn.Module,
-    eval_dataloader: DataLoader,
-    device: str,
-):
-    model.eval()
-    loss_fn = nn.CrossEntropyLoss()
-    losses = []
-    for batch in eval_dataloader:
-        input_ids = batch["input_ids"].to(device)
-        attention_mask = batch["attention_mask"].to(device)
-        label_values = batch["label_values"].to(device)
-        # [batch_size, seq_len, 2]
-        outputs = model(input_ids, attention_mask=attention_mask)
-        # since some sequences in the batch are padded, we use this method to get the output for the last non-padded token
-        # for each sequence in this batch
-        last_non_padded_indices = attention_mask.sum(dim=1) - 1
-        # [batch_size, 2]
-        last_outputs = outputs[torch.arange(outputs.size(0)), last_non_padded_indices]
-        # this loss is different from the loss in the training loop
-        # because we want to use the probability of the last non-padded token as the prediction
-        # see https://arxiv.org/abs/2305.20050 for more details
-        loss = loss_fn(last_outputs, label_values)
-        losses.append(loss.item())
-    model.train()
-    return sum(losses) / len(losses)
-
-
 class Trainer:
     def __init__(
         self,
@@ -123,6 +94,36 @@ class Trainer:
                 device_type=training_config.device, dtype=ptdtype[training_config.dtype]
             )
         )
+        self.device = training_config.device
+    
+    @torch.no_grad()
+    def evaluate(self):
+        self.model.eval()
+        loss_fn = nn.CrossEntropyLoss()
+        losses = []
+        for batch in self.eval_dataloader:
+            input_ids = batch["input_ids"].to(self.device)
+            attention_mask = batch["attention_mask"].to(self.device)
+            eval_labels = batch["eval_labels"].to(self.device)
+            # [batch_size, seq_len, 2]
+            outputs = self.model(input_ids, attention_mask=attention_mask)
+            # since some sequences in the batch are padded, we use this method to get the output for the last non-padded token
+            # for each sequence in this batch
+            last_non_padded_indices = attention_mask.sum(dim=1) - 1
+            # [batch_size, 2]
+            last_outputs = outputs[torch.arange(outputs.size(0)), last_non_padded_indices]
+            # this loss is different from the loss in the training loop
+            # because we want to use the probability of the last non-padded token as the prediction
+            # see https://arxiv.org/abs/2305.20050 for more details
+            loss = loss_fn(last_outputs, eval_labels)
+            losses.append(loss.item())
+        self.model.train()
+        return sum(losses) / len(losses)
+    
+    def compute_loss(self, criterion, input_ids, attention_mask, labels):
+        outputs = self.model(input_ids, attention_mask=attention_mask)
+        loss = criterion(outputs.view(-1, 2), labels.view(-1))
+        return loss
 
     def train(self):
         if self.training_config.wandb_log:
@@ -145,6 +146,7 @@ class Trainer:
         best_val_loss = 1e9
         epoch = 0
         iter_num = 0  # each iteration is one batch gradient accumulation
+        last_eval_iter = 0
         if self.training_config.resume:
             checkpoint = torch.load(
                 os.path.join(self.training_config.out_dir, self.training_config.resume_checkpoint_path)
@@ -153,7 +155,8 @@ class Trainer:
             optimizer.load_state_dict(checkpoint["optimizer"])
             best_val_loss = checkpoint["best_val_loss"]
             epoch = checkpoint["epoch_num"]
-            iter_num = checkpoint["iter_num"]
+            # iter_num = checkpoint["iter_num"]
+            # last_eval_iter = iter_num
         criterion = nn.CrossEntropyLoss()
         while epoch < self.training_config.epochs:
             total_loss = 0
@@ -176,12 +179,11 @@ class Trainer:
                     param_group["lr"] = lr
                 input_ids = batch["input_ids"].to(self.training_config.device)
                 attention_mask = batch["attention_mask"].to(self.training_config.device)
-                labels = batch["label_tensor"].to(self.training_config.device)
+                training_labels = batch["training_labels"].to(self.training_config.device)
 
                 with self.ctx:
                     # Forward pass
-                    outputs = self.model(input_ids, attention_mask=attention_mask)
-                    loss = criterion(outputs.view(-1, 2), labels.view(-1))
+                    loss = self.compute_loss(criterion, input_ids, attention_mask, training_labels)
 
                     # Normalize loss to account for gradient accumulation
                     loss = loss / self.training_config.gradient_accumulation_steps
@@ -198,12 +200,9 @@ class Trainer:
                     optimizer.step()
                     optimizer.zero_grad()
                     iter_num += 1
-                if (iter_num + 1) % self.training_config.eval_interval == 0:
-                    eval_loss = evalaute(
-                        self.model,
-                        self.eval_dataloader,
-                        self.training_config.device,
-                    )
+                if (iter_num + 1) % self.training_config.eval_interval == 0 and iter_num > last_eval_iter:
+                    last_eval_iter = iter_num
+                    eval_loss = self.evaluate()
                     if self.training_config.wandb_log:
                         wandb.log(
                             {
@@ -229,7 +228,7 @@ class Trainer:
                                 checkpoint,
                                 os.path.join(
                                     self.training_config.out_dir,
-                                    f"{self.training_config.checkpoint_path}_{epoch}_{iter_num}.pt",
+                                    f"{self.training_config.checkpoint_path_prefix}_{epoch}_{iter_num}.pt",
                                 ),
                             )
                     print(

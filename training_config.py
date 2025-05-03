@@ -18,7 +18,7 @@ class TrainingConfig:
     decay_lr: bool = True
     out_dir: str = "output"
     resume: bool = False
-    checkpoint_path: str = "orm_model.pt"
+    checkpoint_path_prefix: str = "orm_model"
     resume_checkpoint_path: str = None
     adamw_beta1: float = 0.9
     adamw_beta2: float = 0.95

@@ -67,9 +67,9 @@ class DataCollatorForORM:
             label_tensor[i, attention_mask[i] == 0] = self.ignore_index
         batch = {
             "input_ids": input_ids,
-            "label_tensor": label_tensor,
+            "training_labels": label_tensor,
             "attention_mask": attention_mask,
-            "label_values": torch.tensor(labels, dtype=torch.long),
+            "eval_labels": torch.tensor(labels, dtype=torch.long),
         }
         return batch
 
@@ -128,6 +128,7 @@ if __name__ == "__main__":
     test_dataset = ORMDataset(test_dataset)
 
     tokenizer = AutoTokenizer.from_pretrained(orm_training_config.base_model_name)
+    tokenizer.pad_token = tokenizer.eos_token
     model = ORMModel(orm_training_config.base_model_name, orm_training_config.dtype).to(
         orm_training_config.device
     )

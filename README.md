@@ -41,6 +41,10 @@ Still following [Let's Verify Step by Step](https://arxiv.org/abs/2305.20050), w
 Opposed to the outcome reward model, the process reward model will use the correctness of each reasoning step as the reward signal to train the model. This is more fine-grained and more effective. But the shortcoming is that
 we need to collect the human labels for each reasoning step.
 
+## Data
+
+We use [PRM800K](https://github.com/openai/prm800k) from OpenAI as the training data.
+
 ## Training
 
 As mentioned in [Let's Verify Step by Step](https://arxiv.org/abs/2305.20050), the classification problem is turned into a **auto-regressive** problem which is amazing. It effectively uses the unsupervised training pipeline to train a supervised model. Again, excellent idea.

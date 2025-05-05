@@ -55,3 +55,19 @@ And we will use scores/logits of two tokens(**+/-**) to represent the probabilit
 ## Evaluation
 
 The evaluation is pretty much the same as the training.
+
+# Bradley-Terry Model
+
+[Bradley-Terry model](https://en.wikipedia.org/wiki/Bradley%E2%80%93Terry_model) is used to model the ranking between two items. In our case, the ranking is based on the human preference. The reward model is used to predict the reward of an LLM response. If response A is preferred over response B, then the reward of A should be higher than that of B.
+
+## Data
+
+We use [Anthropic/hh-rlhf](https://huggingface.co/datasets/Anthropic/hh-rlhf) as the training/evaluation data.
+
+## Training
+
+A chat between user and LLM is the input to a pretrained LLM. The model will output a score and we use it as the reward of the chat. Each sample contains two chats: one is chosen and the other is rejected. So we expect the score of the chosen chat to be higher than that of the rejected one.
+
+## Evaluation
+
+Pretty much the same as the training.

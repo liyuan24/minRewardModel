@@ -80,6 +80,7 @@ class Trainer:
         train_dataloader: DataLoader,
         eval_dataloader: DataLoader,
         training_config: TrainingConfig,
+        criterion: nn.Module = None,
     ):
         global ptdtype
         self.model = model
@@ -95,11 +96,14 @@ class Trainer:
             )
         )
         self.device = training_config.device
+        if criterion is None:
+            self.criterion = nn.CrossEntropyLoss()
+        else:
+            self.criterion = criterion
     
     @torch.no_grad()
     def evaluate(self):
         self.model.eval()
-        loss_fn = nn.CrossEntropyLoss()
         losses = []
         for batch in self.eval_dataloader:
             input_ids = batch["input_ids"].to(self.device)
@@ -115,7 +119,7 @@ class Trainer:
             # this loss is different from the loss in the training loop
             # because we want to use the probability of the last non-padded token as the prediction
             # see https://arxiv.org/abs/2305.20050 for more details
-            loss = loss_fn(last_outputs, eval_labels)
+            loss = self.criterion(last_outputs, eval_labels)
             losses.append(loss.item())
         self.model.train()
         return sum(losses) / len(losses)
@@ -123,7 +127,7 @@ class Trainer:
     def compute_loss(self, criterion, input_ids, attention_mask, labels):
         outputs = self.model(input_ids, attention_mask=attention_mask)
         loss = criterion(outputs.view(-1, 2), labels.view(-1))
-        return loss
+        return loss, None
 
     def train(self):
         if self.training_config.wandb_log:
@@ -157,7 +161,6 @@ class Trainer:
             epoch = checkpoint["epoch_num"]
             # iter_num = checkpoint["iter_num"]
             # last_eval_iter = iter_num
-        criterion = nn.CrossEntropyLoss()
         while epoch < self.training_config.epochs:
             total_loss = 0
             optimizer.zero_grad()  # Zero the gradients at the start of each epoch
@@ -183,7 +186,7 @@ class Trainer:
 
                 with self.ctx:
                     # Forward pass
-                    loss = self.compute_loss(criterion, input_ids, attention_mask, training_labels)
+                    loss, _ = self.compute_loss(self.criterion, input_ids, attention_mask, training_labels)
 
                     # Normalize loss to account for gradient accumulation
                     loss = loss / self.training_config.gradient_accumulation_steps

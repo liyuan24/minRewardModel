@@ -33,7 +33,7 @@ class PRMTrainer(Trainer):
         label_logits = prm_label_output_logits[:, self.prm_reward_token_ids]
         # calculate the loss only on the positive and negative label token ids
         loss = criterion(label_logits, labels)
-        return loss
+        return loss, None
     
     @torch.no_grad()
     def evaluate(self):
